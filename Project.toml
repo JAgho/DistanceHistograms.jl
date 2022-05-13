@@ -1,0 +1,13 @@
+name = "DistanceHistograms"
+uuid = "2fafaeb7-03f2-4f62-9163-0c6c92e0a7a2"
+authors = ["James <gholamja@cardiff.ac.uk> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
