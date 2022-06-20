@@ -54,7 +54,14 @@ function auto_corr(points, histo::Array{Int64,1}, rmax::Int64, nbins::Int64; blo
     if N <= blocksize
         return auto_corr(points,histo, rmax, nbins, metric)
     end
-    tiles, ntile = xtiles(N, blocksize)
+    chunks = cld(N, blocksize)
+    tiles = SplitAxis(1:N, chunks)
+    ntile = Tuple{UnitRange{Int64}, UnitRange{Int64}}[]
+    for i in 1:length(tiles)
+        for j in i+1:length(tiles)
+            push!(ntile, (tiles[i], tiles[j]))
+        end
+    end
     histos = [zeros(Int64, length(histo)) for i in 1:Threads.nthreads()]  
     @sync Threads.@threads for i in tiles
         auto_corr(view(points,i), view(histos, Threads.threadid())[1], rmax, nbins, metric) #
