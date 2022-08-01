@@ -114,10 +114,10 @@ end
 
 Compute the autocorrelation distance histogram for a set of SVector{T} points assigned to a preallocated array
 """
-function auto_corr!(points::AbstractVector{T}, histo::AbstractVector{Int}, rmax::Int, nbins::Int; blocksize::Int=64, metric::Metric=Euclidean()) where {T<:SVector}
-    N = length(points) #this seems to be triggering an eval
+function auto_corr!(r::AbstractVector{T}, histo::AbstractVector{Int}, rmax::Int, nbins::Int; blocksize::Int=64, metric::Metric=Euclidean()) where {T<:SVector}
+    N = length(r) #this seems to be triggering an eval
     if N <= blocksize
-        return _auto_corr!(points,histo, rmax, nbins, metric)
+        return _auto_corr!(r,histo, rmax, nbins, metric)
     end
     chunks = cld(N, blocksize)
     tiles = SplitAxis(1:N, chunks)
@@ -129,10 +129,10 @@ function auto_corr!(points::AbstractVector{T}, histo::AbstractVector{Int}, rmax:
     end
     histos = [zeros(Int64, length(histo)) for i in 1:Threads.nthreads()]  
     @sync Threads.@threads for i in tiles
-        _auto_corr!(view(points,i), view(histos, Threads.threadid())[1], rmax, nbins, metric) #
+        _auto_corr!(view(r,i), view(histos, Threads.threadid())[1], rmax, nbins, metric) #
     end
     @sync Threads.@threads for (i,j) in ntile
-        _cross_corr!(view(points,i), view(points,j), view(histos, Threads.threadid())[1], rmax, nbins, metric=metric)
+        _cross_corr!(view(r,i), view(r,j), view(histos, Threads.threadid())[1], rmax, nbins, metric=metric)
     end 
     sum(histos)
 end
