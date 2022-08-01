@@ -1,179 +1,99 @@
-using DistanceHistograms
+using DistanceHistograms, StaticArrays, Distances, Test
+import DistanceHistograms.as_ints, DistanceHistograms.svectorscopy
 
-
-using StaticArrays, Distances, TiledIteration
-
-@inline function cross_dhist(r1, r2, histo, rmax::Int64, nbins::Int64, dist)
-    rb = nbins/rmax
-    metric = dist()
-    @inbounds for i in 1:length(r1)
-        @inbounds for j in 1:length(r2)
-            d=evaluate(metric, r1[i], r2[j])#sqrt((r1[i,1]-r2[j,1])^2+(r1[i,2]-r2[j,2])^2)
-            rIndex=floor(Int, d*rb) + 1
-            (rIndex < nbins+1) && (histo[rIndex] += 1)
-        end
-    end
-    return histo
+# test struct to pack metrics with a coordinate pair
+struct disteval{T<:SVector, M<:SemiMetric}
+    a::T
+    b::T
+    f::M
 end
-
-function cross_dhist2(r1::AbstractArray{Float64,2}, r2::AbstractArray{Float64,2}, histo, rmax::Int64, nbins::Int64)
-    rb = nbins/rmax
-    @inbounds for i in 1:size(r1)[2]
-        for j in 1:size(r2)[2]
-            d=sqrt((r1[1,i]-r2[1,j])^2+(r1[2,i]-r2[2,j])^2)
-            rIndex=floor(Int, d*rb) + 1
-            (rIndex < nbins+1) && (histo[rIndex] += 1)
-        end
-    end
-    return histo
-end
+distance(x::disteval) =  Distances.evaluate(x.f, x.a, x.b)
+tri(n::Int64) = n*(n-1)÷2
 
 
-@inline function self_dhist(r, histo, rmax, nbins, dist)
-    rb = (nbins)/rmax 
-    metric= dist()
-    @inbounds for i = 1:length(r)-1
-        for j = i+1:length(r)#i+1:size(r)[1]
-            d=evaluate(metric, r[i], r[j])
-            rIndex=floor(Int, d*rb) +1
-            (rIndex < nbins+1) && (histo[rIndex] += 1)
-        end
-    end
-    return histo
-end
-
-function self_dhist2(r::AbstractArray{Float64,2}, histo, rmax, nbins)
-    rb = (nbins)/rmax 
-    @inbounds for i = 1:size(r)[2]-1
-        for j = i+1:size(r)[2]
-            d=sqrt((r[1,i]-r[1,j])^2+(r[2,i]-r[2,j])^2)
-            rIndex=floor(Int, d*rb) +1
-            (rIndex < nbins+1) && (histo[rIndex] += 1)
-        end
-    end
-    return histo
-end
-
-
-function tile_dist(points, histo::Array{Int64,1}, rmax::Int64, nbins::Int64; blocksize=50, metric=Euclidean)
-    N = length(points)
-    if N <= blocksize
-        return self_dhist(b,histo, rmax, nbins, metric)
-    end
-    chunks = length(points) ÷ blocksize
-    tiles = collect(SplitAxis(1:N, chunks))
-    ntile = Tuple{UnitRange{Int64}, UnitRange{Int64}}[]
-    for i in 1:length(tiles)
-        for j in i:length(tiles)
-            push!(ntile, (tiles[i], tiles[j]))
-        end
-    end
-    histos = [zeros(Int64, length(histo)) for i in 1:Threads.nthreads()]  
-    @sync Threads.@threads for i in tiles
-        #println(i)
-        self_dhist(view(points,i), view(histos, Threads.threadid())[1], rmax, nbins, metric) #
-    end
-    #println("\npause\n")
-    @sync Threads.@threads for (i,j) in ntile
-        #println(i, "  ", j)
-        cross_dhist(view(points,i), view(points,j), view(histos, Threads.threadid())[1], rmax, nbins, metric)
-    end 
-    return sum(histos)
-end
-
-
-function tile_dist(points, histo::Array{Int64,1}, rmax::Int64, nbins::Int64)
-    bsize::Int64 = 100
-    N = size(points)[1]
-    #histo .= 0
-    if N <= bsize
-        return self_dhist2(points, histo, rmax, nbins)
-    else
-        histos = [zeros(Int64, length(histo)) for i in 1:Threads.nthreads()]
-        #dump(histos[1])
-        Threads.@threads for i in 0:(div(N, bsize)-1)
-                            self_dhist2(view(points, (i*bsize)+1:((i+1)*bsize), :),
-                                 view(histos, Threads.threadid())[1],
-                                 rmax,
-                                 nbins)
-            #print("\nirange = ", (i*bsize)+1, ":", ((i+1)*bsize))
-            #make thread with self_routine(myblocks)
-        end
-        @sync for il in 1:bsize:N+1
-            for jl in il+bsize:bsize:N-bsize+1
-                #println("il: ", il, "\t\tir: ", il+bsize-1)
-                #println("jl: ", jl, "\t\tjr: ", jl+bsize-1)
-                Threads.@spawn cross_dhist2(view(points, il:il+bsize-1, :),
-                        view(points, jl:jl+bsize-1, :),
-                        view(histos, Threads.threadid())[1],
-                        rmax,
-                        nbins)
-            end
-        end
-        epoint = (N ÷ bsize)*bsize
-        #println("epoint = ", epoint, ", residuals are: ", epoint+1:N, " and  ", 1:epoint)
-    self_dhist2(view(points, epoint+1:N, :),
-         view(histos, 1)[1],
-         rmax,
-         nbins)
-     cross_dhist2(view(points, epoint+1:N, :),
-             view(points, 1:epoint, :),
-             view(histos, Threads.threadid())[1],
-             rmax,
-             nbins)
-        for i in 1:Threads.nthreads() histo .+= view(histos, i)[1] end
-    end
-    return histo
-end
-
+# create test array of 100x100 isotropically distributed points in svector format
 a = collect(CartesianIndices((100,100)));
 b = reinterpret(SVector{length(axes(a)),Float64}, Float64.(vec(as_ints(a))));
-c = reshape(Float64.(vec(as_ints(a))), 2, :)
+c = svectorscopy(Float64.(as_ints(vec(a))), Val{2}())
+d = copy(b)
 
-# self_dhist(b,zeros(Int64, 100), 145, 100, Euclidean)
-# self_dhist2(c,zeros(Int64, 100), 145, 100)
-
-# cross_dhist(b,b,zeros(Int, 100), 145, 100, Euclidean)
-# cross_dhist2(c,c,zeros(Int, 100), 145, 100)
-
-auto_corr(b,zeros(Int64, 100), 145, 100)
-#temp2 = tile_dist(c,zeros(Int64, 100), 145, 100)
-#temp3 = self_dhist2(c,zeros(Int64, 100), 145, 100)
+#pack the metric type with the maximally distant points in the set
+euc = disteval(SVector{2}([1.0, 1.0]), SVector{2}([100.0, 100.0]), Euclidean())
+peuc = disteval(SVector{2}([1.0, 1.0]), SVector{2}([100.0, 100.0]), Cityblock())
+cb = disteval(SVector{2}([1.0, 1.0]), SVector{2}([100.0, 100.0]), Chebyshev())
+cheby = disteval(SVector{2}([1.0, 1.0]), SVector{2}([50.0, 50.0]), PeriodicEuclidean([100,100]))
 
 
-tiles = collect(SplitAxis(1:length(b), 8))
-ntile = Tuple{UnitRange{Int64}, UnitRange{Int64}}[]
-for i in 1:length(tiles)
-    for j in i:length(tiles)
-        push!(ntile, (tiles[i], tiles[j]))
+metrics = (euc, peuc, cb, cheby)
+maxdists = [distance(x) for x=metrics]
+resb = [auto_corr(b, ceil(Int64, maxdist)+1, 100, blocksize=50, metric=met.f) for (met , maxdist) in zip(metrics,maxdists)]
+resc = [auto_corr(c, ceil(Int64, maxdist)+1, 100, blocksize=50, metric=met.f) for (met , maxdist) in zip(metrics,maxdists)]
+resd = [cross_corr(b, b, ceil(Int64, maxdist)+1, 100, blocksize=50, metric=met.f) for (met , maxdist) in zip(metrics,maxdists)]
+rese = [cross_corr(c, c, ceil(Int64, maxdist)+1, 100, blocksize=50, metric=met.f) for (met , maxdist) in zip(metrics,maxdists)]
+mins = [77616, 97410, 39402, 40000] # second bins of each histogram
+
+@testset "Autocorrelation tests" begin
+    @testset "Autocorrelation reinterpret distance totals" begin
+        dt = tri(length(a))
+        @test sum(resb[1])==dt
+        @test sum(resb[2])==dt
+        @test sum(resb[3])==dt
+        @test sum(resb[4])==dt
+    end
+
+    @testset "Autocorrelation reinterpret distance sample" begin
+        @test resb[1][2] == mins[1]
+        @test resb[2][2] == mins[2]
+        @test resb[3][2] == mins[3]
+        @test resb[4][2] == mins[4]
+    end
+
+    @testset "Autocorrelation SVector distance totals" begin
+        dt = tri(length(a))
+        @test sum(resc[1])==dt
+        @test sum(resc[2])==dt
+        @test sum(resc[3])==dt
+        @test sum(resc[4])==dt
+    end
+
+    @testset "Autocorrelation SVector distance sample" begin
+        @test resc[1][2] == mins[1]
+        @test resc[2][2] == mins[2]
+        @test resc[3][2] == mins[3]
+        @test resc[4][2] == mins[4]
     end
 end
 
-inner = (2:8, 2:8)
-outer = (1:10, 1:10)
-i3 = (2:8, 2:8, 2:8)
-o3 = (1:10, 1:10, 1:10)
-ei = EdgeIterator(o3, i3)
+@testset "Cross correlation tests" begin
 
-import Base.Cartesian.@nloops, Base.Cartesian.@ntuple
+    @testset "Cross correlation reinterpret distance totals" begin
+        dt = length(a)^2
+        @test sum(resd[1])==dt
+        @test sum(resd[2])==dt
+        @test sum(resd[3])==dt
+        @test sum(resd[4])==dt
+    end
 
+    @testset "Cross correlation reinterpret distance sample" begin
+        @test resd[1][2] == mins[1]*2
+        @test resd[2][2] == mins[2]*2
+        @test resd[3][2] == mins[3]*2
+        @test resd[4][2] == mins[4]*2
+    end
 
+    @testset "Cross correlation SVector distance totals" begin
+        dt = length(a)^2#tri(length(a))
+        @test sum(rese[1])==dt
+        @test sum(rese[2])==dt
+        @test sum(rese[3])==dt
+        @test sum(rese[4])==dt
+    end
 
+    @testset "Cross correlation SVector distance sample" begin
+        @test rese[1][2] == mins[1]*2
+        @test rese[2][2] == mins[2]*2
+        @test rese[3][2] == mins[3]*2
+        @test rese[4][2] == mins[4]*2
+    end
 
-dims = length(axes(ei.inner))
-ends(x) = (first(x), last(x))
-s = size(zeros(100,90,80, 70,60))
-dims = length(s)
-v = 2^(dims-1)
-vars = [zeros(v, i) for i in s]
-vars[2] #hurrah this generates the edges of a n-rectangle... now to populate it
-
-
-
-
-
-edges = [zeros(i) for i in 1:2^(dims-1)*2]
-for (i,e) in enumerate(EdgeIterator(outer, inner))
-    @show e
 end
-
