@@ -1,4 +1,4 @@
-# Distance Histograms
+# DistanceHistograms.jl
 
 DistanceHistograms.jl is a lightweight package for optimised computation of pairwise and cross-correlated distance histograms. These summarise distance matrix distributions with constant memory and greater efficiency than compute-then-bin approaches. Inputs are collections of coordinates, given as `Vector{SVector}`; outputs are `Vector{Int64}`. All Distances.jl `SemiMetric`s are supported, with some specialised versions available. Binning is linear and 0->maximum style.  This packaged is optimised for medium scale 2-point correlation function computation, and does not employ spatial tree techniques, though the kernels are suitable for this.
 
