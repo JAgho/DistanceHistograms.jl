@@ -23,7 +23,7 @@ end
 Compute the cross correlation distance histogram between a a collection of points `r1` and another collection `r2`
 """
 function cross_corr(r1::AbstractVector{T}, r2::AbstractVector{T}, rmax::Int64, nbins::Int64; blocksize=1000, metric::Metric=Euclidean()) where {T<:SVector}
-    cross_corr!(r2, r2, zeros(Int64, nbins), rmax, nbins; blocksize=blocksize, metric=metric) 
+    cross_corr!(r1, r2, zeros(Int64, nbins), rmax, nbins; blocksize=blocksize, metric=metric) 
 end
 
 @inline function _cross_corr!(r1::AbstractVector{T}, r2::AbstractVector{T}, histo::AbstractVector{Int}, rmax::Int64, nbins::Int64; metric::Metric=Euclidean()) where {T<:SVector}
@@ -46,7 +46,7 @@ Compute the cross correlation distance histogram between a a collection of point
 """
 function cross_corr!(r1::AbstractVector{T}, r2::AbstractVector{T}, histo::AbstractVector{Int}, rmax::Int64, nbins::Int64; blocksize=1000, metric::Metric=Euclidean()) where {T<:SVector}
     rb = nbins/rmax
-    if length(r1)*length(r2) > blocksize*blocksize
+    if length(r1)*length(r2) < blocksize*blocksize
         return _cross_corr!(r2, r2, histo, rmax, nbins; metric=metric) 
     end
     histos = [zeros(Int64, nbins) for i in 1:Threads.nthreads()]  
@@ -153,3 +153,5 @@ export auto_corr, cross_corr, unitary_corr, auto_corr!, cross_corr!, unitary_cor
 
 
 end
+
+# TODO: Why is rmax passed as an Int? It should probably be a ::Real
