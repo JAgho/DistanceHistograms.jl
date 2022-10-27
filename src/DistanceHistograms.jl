@@ -121,12 +121,8 @@ function auto_corr!(r::AbstractVector{T}, histo::AbstractVector{Int}, rmax::Int,
     end
     chunks = cld(N, blocksize)
     tiles = SplitAxis(1:N, chunks)
-    ntile = Tuple{UnitRange{Int64}, UnitRange{Int64}}[]
-    for i in 1:length(tiles)
-        for j in i+1:length(tiles)
-            push!(ntile, (tiles[i], tiles[j]))
-        end
-    end
+    N = length(tiles)
+    ntile = ((tiles[i], tiles[j]) for i in 1:N for j in i+1:N)
     histos = [zeros(Int64, length(histo)) for i in 1:Threads.nthreads()]  
     @sync Threads.@threads for i in tiles
         _auto_corr!(view(r,i), view(histos, Threads.threadid())[1], rmax, nbins, metric) #
